@@ -1,0 +1,34 @@
+{
+  "name": "@odh-dashboard/data-hub",
+  "version": "1.0.0",
+  "private": true,
+  "exports": {
+    "./extensions": "./frontend/src/odh/extensions.ts"
+  },
+  "module-federation": {
+    "name": "dataHub",
+    "remoteEntry": "/remoteEntry.js",
+    "authorize": true,
+    "tls": false,
+    "proxy": [
+      {
+        "path": "/data-hub/api",
+        "pathRewrite": "/api"
+      }
+    ],
+    "local": {
+      "host": "localhost",
+      "port": 9109
+    },
+    "service": {
+      "name": "odh-dashboard",
+      "port": 8043
+    }
+  },
+  "scripts": {
+    "build:frontend": "cd frontend && npm run build",
+    "build:bff": "cd bff && make build",
+    "dev:frontend": "cd frontend && npm run start:dev",
+    "dev:bff": "cd bff && make run"
+  }
+}
