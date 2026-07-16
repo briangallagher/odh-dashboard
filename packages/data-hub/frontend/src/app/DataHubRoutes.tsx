@@ -7,6 +7,7 @@ const CollectionDetailPage = lazy(() => import('./pages/collections/CollectionDe
 const TableDetailPage = lazy(() => import('./pages/tables/TableDetailPage'));
 const VolumeDetailPage = lazy(() => import('./pages/volumes/VolumeDetailPage'));
 const SearchPage = lazy(() => import('./pages/search/SearchPage'));
+const ConnectionsPage = lazy(() => import('./pages/connections/ConnectionsPage'));
 
 const Loading: React.FC = () => (
   <Bullseye>
@@ -22,6 +23,7 @@ const DataHubRoutes: React.FC = () => (
       <Route path="/collections/:namespace/:collection/tables/:name" element={<TableDetailPage />} />
       <Route path="/collections/:namespace/:collection/volumes/:name" element={<VolumeDetailPage />} />
       <Route path="/search" element={<SearchPage />} />
+      <Route path="/connections" element={<ConnectionsPage />} />
       <Route path="*" element={<Navigate to="/collections" replace />} />
     </Routes>
   </Suspense>

@@ -42,6 +42,7 @@ func (a *App) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+apiPrefix+"search", a.handleSearch)
 	mux.HandleFunc("POST "+apiPrefix+"collections/{ns}/{collection}/tables", a.handleCreateTable)
 	mux.HandleFunc("POST "+apiPrefix+"collections/{ns}/{collection}/volumes", a.handleCreateVolume)
+	mux.HandleFunc("GET "+apiPrefix+"connections", a.handleListConnections)
 }
 
 // --- Handlers ---
@@ -256,6 +257,54 @@ func extractToken(w http.ResponseWriter, r *http.Request) (string, bool) {
 		return "", false
 	}
 	return token, true
+}
+
+func (a *App) handleListConnections(w http.ResponseWriter, r *http.Request) {
+	token, ok := extractToken(r)
+	if !ok {
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+
+	namespaces, err := a.nsCheck.AccessibleNamespaces(r.Context(), token)
+	if err != nil {
+		slog.Error("failed to list accessible namespaces for connections", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to determine accessible namespaces")
+		return
+	}
+
+	type connection struct {
+		Name           string `json:"name"`
+		Namespace      string `json:"namespace"`
+		DisplayName    string `json:"displayName"`
+		ConnectionType string `json:"connectionType"`
+		Endpoint       string `json:"endpoint"`
+		Bucket         string `json:"bucket"`
+		Region         string `json:"region"`
+		LinkedTables   int    `json:"linkedTables"`
+	}
+
+	var connections []connection
+	for _, ns := range namespaces {
+		if namespace != "" && ns != namespace {
+			continue
+		}
+		secrets, err := a.nsCheck.ListDataConnections(r.Context(), token, ns)
+		if err != nil {
+			slog.Warn("failed to list connections", "namespace", ns, "error", err)
+			continue
+		}
+		connections = append(connections, secrets...)
+	}
+
+	if connections == nil {
+		connections = []connection{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"connections": connections,
+	})
 }
 
 func handleCatalogError(w http.ResponseWriter, err error) {

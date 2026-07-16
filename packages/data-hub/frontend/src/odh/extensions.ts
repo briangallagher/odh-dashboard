@@ -27,6 +27,17 @@ const extensions: Extension[] = [
     },
   },
   {
+    type: 'app.navigation/href',
+    flags: { required: ['plugin-data-hub'] },
+    properties: {
+      id: 'data-hub-connections',
+      title: 'Connections',
+      href: '/ai-hub/data/connections',
+      section: 'data-hub',
+      path: '/ai-hub/data/connections',
+    },
+  },
+  {
     type: 'app.route',
     flags: { required: ['plugin-data-hub'] },
     properties: {

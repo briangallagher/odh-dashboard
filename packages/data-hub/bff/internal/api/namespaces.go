@@ -126,3 +126,69 @@ type namespacesResponse struct {
 func marshalNamespaces(namespaces []string) ([]byte, error) {
 	return json.Marshal(namespacesResponse{Namespaces: namespaces})
 }
+
+// DataConnectionInfo represents a K8s Data Connection Secret.
+type DataConnectionInfo struct {
+	Name           string `json:"name"`
+	Namespace      string `json:"namespace"`
+	DisplayName    string `json:"displayName"`
+	ConnectionType string `json:"connectionType"`
+	Endpoint       string `json:"endpoint"`
+	Bucket         string `json:"bucket"`
+	Region         string `json:"region"`
+	LinkedTables   int    `json:"linkedTables"`
+}
+
+// ListDataConnections returns Data Connection secrets in the given namespace.
+func (nc *NamespaceChecker) ListDataConnections(ctx context.Context, token, namespace string) ([]DataConnectionInfo, error) {
+	cfg, err := nc.restConfigForToken(token)
+	if err != nil {
+		return nil, err
+	}
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating clientset: %w", err)
+	}
+
+	secrets, err := clientset.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "opendatahub.io/managed=true,opendatahub.io/dashboard=true",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing secrets in %s: %w", namespace, err)
+	}
+
+	var connections []DataConnectionInfo
+	for _, s := range secrets.Items {
+		connType := s.Annotations["opendatahub.io/connection-type-ref"]
+		if connType == "" {
+			connType = "s3"
+		}
+		displayName := s.Annotations["openshift.io/display-name"]
+		if displayName == "" {
+			displayName = s.Name
+		}
+
+		conn := DataConnectionInfo{
+			Name:           s.Name,
+			Namespace:      namespace,
+			DisplayName:    displayName,
+			ConnectionType: connType,
+			Endpoint:       string(s.Data["AWS_S3_ENDPOINT"]),
+			Bucket:         string(s.Data["AWS_S3_BUCKET"]),
+			Region:         string(s.Data["AWS_DEFAULT_REGION"]),
+		}
+		connections = append(connections, conn)
+	}
+
+	return connections, nil
+}
+
+func (nc *NamespaceChecker) restConfigForToken(token string) (*rest.Config, error) {
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		cfg = &rest.Config{Host: "https://kubernetes.default.svc"}
+	}
+	cfg.BearerToken = token
+	cfg.BearerTokenFile = ""
+	return cfg, nil
+}
