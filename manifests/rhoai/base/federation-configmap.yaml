@@ -203,5 +203,26 @@ data:
             "namespace": "redhat-ods-applications",
             "port": 8443
         }
+      },
+      {
+        "name": "dataHub",
+        "remoteEntry": "/remoteEntry.js",
+        "authorize": true,
+        "tls": false,
+        "proxy": [
+          {
+            "path": "/data-hub/api",
+            "pathRewrite": "/api"
+          }
+        ],
+        "local": {
+          "host": "localhost",
+          "port": 9109
+        },
+        "service": {
+          "name": "rhods-dashboard",
+          "namespace": "redhat-ods-applications",
+          "port": 8943
+        }
       }
     ]
