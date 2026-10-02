@@ -1,8 +1,14 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import RegistryTable from '~/app/components/RegistryTable';
 import { RegistryAsset } from '~/app/hooks/useAssets';
+import * as trackingHook from '~/app/hooks/useDataRegistryTrackEvent';
+
+jest.mock('~/app/hooks/useDataRegistryTrackEvent');
+
+const mockTrackEvent = jest.fn();
 
 const mockAssets: RegistryAsset[] = [
   {
@@ -50,6 +56,11 @@ const renderTable = (props?: Partial<React.ComponentProps<typeof RegistryTable>>
   );
 
 describe('RegistryTable', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.mocked(trackingHook.useDataRegistryTrackEvent).mockReturnValue(mockTrackEvent);
+  });
+
   it('should render asset names', () => {
     renderTable();
     expect(screen.getByText('claims-data')).toBeTruthy();
@@ -105,5 +116,77 @@ describe('RegistryTable', () => {
   it('should render kebab menu', () => {
     renderTable();
     expect(screen.getByTestId('registry-kebab')).toBeTruthy();
+  });
+
+  it('should emit a debounced search event with the total filtered result count', () => {
+    jest.useFakeTimers();
+    renderTable();
+
+    fireEvent.change(screen.getByTestId('asset-search').querySelector('input')!, {
+      target: { value: 'claims' },
+    });
+
+    expect(mockTrackEvent).not.toHaveBeenCalled();
+
+    act(() => {
+      jest.advanceTimersByTime(750);
+    });
+
+    expect(mockTrackEvent).toHaveBeenCalledWith({
+      eventName: 'Data Registry Search Performed',
+      properties: {
+        hasQuery: true,
+        queryLength: 6,
+        resultCount: 1,
+        project: 'test-project',
+      },
+    });
+    expect(mockTrackEvent.mock.calls[0][0].properties).not.toHaveProperty('query');
+    jest.useRealTimers();
+  });
+
+  it('should emit an immediate search event when the query is cleared', async () => {
+    const user = userEvent.setup();
+    renderTable();
+    const searchInput = screen.getByTestId('asset-search').querySelector('input')!;
+
+    fireEvent.change(searchInput, { target: { value: 'claims' } });
+    mockTrackEvent.mockClear();
+    await user.click(screen.getByTestId('asset-search').querySelector('button')!);
+
+    expect(mockTrackEvent).toHaveBeenCalledWith({
+      eventName: 'Data Registry Search Performed',
+      properties: {
+        hasQuery: false,
+        queryLength: 0,
+        resultCount: 2,
+        project: 'test-project',
+      },
+    });
+  });
+
+  it('should track asset opens and both registry row action types', async () => {
+    const user = userEvent.setup();
+    renderTable();
+
+    await user.click(screen.getByText('claims-data'));
+    expect(mockTrackEvent).toHaveBeenCalledWith({
+      eventName: 'Data Asset Opened',
+      properties: { project: 'test-project' },
+    });
+
+    await user.click(screen.getByTestId('asset-actions-table-analytics-claims-data'));
+    await user.click(screen.getByRole('menuitem', { name: 'Edit' }));
+    expect(mockTrackEvent).toHaveBeenCalledWith({
+      eventName: 'Data Asset Edit Initiated',
+      properties: { project: 'test-project' },
+    });
+
+    await user.click(screen.getByTestId('asset-actions-volume-guidelines-raw-documents'));
+    await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    expect(mockTrackEvent).toHaveBeenCalledWith({
+      eventName: 'Data Asset Delete Initiated',
+      properties: { project: 'test-project' },
+    });
   });
 });

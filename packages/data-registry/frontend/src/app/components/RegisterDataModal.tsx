@@ -27,11 +27,13 @@ import {
   StructuredFormat,
 } from '~/app/types';
 import { useConnections } from '~/app/hooks/useConnections';
+import { useDataRegistryTrackEvent } from '~/app/hooks/useDataRegistryTrackEvent';
 import {
   registerDataSchema,
   registerDataDefaults,
   RegisterDataFormData,
 } from '~/app/schemas/registerData.schema';
+import { DATA_REGISTRY_EVENT_NAMES, getRegistrationErrorCategory } from '~/app/utilities/tracking';
 import AssetDetailsSection from './register-data/AssetDetailsSection';
 import DataLocationSection from './register-data/DataLocationSection';
 import PropertiesSection from './register-data/PropertiesSection';
@@ -173,6 +175,7 @@ const RegisterDataModal: React.FC<RegisterDataModalProps> = ({
   onManageCollections,
 }) => {
   const [connections, connectionsLoaded, connectionsError] = useConnections(project);
+  const trackEvent = useDataRegistryTrackEvent();
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [error, setError] = React.useState('');
 
@@ -182,12 +185,30 @@ const RegisterDataModal: React.FC<RegisterDataModalProps> = ({
     mode: 'onBlur',
   });
 
+  const handleDismiss = React.useCallback(
+    (cancelMethod: 'cancel_button' | 'close_x') => {
+      if (isSubmitting) {
+        return;
+      }
+      trackEvent({
+        eventName: DATA_REGISTRY_EVENT_NAMES.registrationCanceled,
+        properties: { cancelMethod, project },
+      });
+      form.reset(registerDataDefaults);
+      setIsSubmitting(false);
+      setError('');
+      onClose();
+    },
+    [form, isSubmitting, onClose, project, trackEvent],
+  );
+
   const handleClose = React.useCallback(() => {
-    form.reset(registerDataDefaults);
-    setIsSubmitting(false);
-    setError('');
-    onClose();
-  }, [form, onClose]);
+    handleDismiss('close_x');
+  }, [handleDismiss]);
+
+  const handleCancel = React.useCallback(() => {
+    handleDismiss('cancel_button');
+  }, [handleDismiss]);
 
   const handleSubmit = React.useCallback(
     async (data: RegisterDataFormData) => {
@@ -211,16 +232,41 @@ const RegisterDataModal: React.FC<RegisterDataModalProps> = ({
         } else {
           await createGenericTable(project, data.collection, buildTableRequest(data, connections));
         }
+        trackEvent({
+          eventName: DATA_REGISTRY_EVENT_NAMES.registered,
+          properties: {
+            success: true,
+            assetType: data.assetType,
+            format: data.format,
+            hasConnection: Boolean(data.connection),
+            hasCollection: Boolean(data.collection),
+            labelCount: data.labels.length,
+            project,
+          },
+        });
         form.reset(registerDataDefaults);
         onCreated();
         onClose();
       } catch (err) {
+        trackEvent({
+          eventName: DATA_REGISTRY_EVENT_NAMES.registered,
+          properties: {
+            success: false,
+            assetType: data.assetType,
+            format: data.format,
+            hasConnection: Boolean(data.connection),
+            hasCollection: Boolean(data.collection),
+            labelCount: data.labels.length,
+            project,
+            error: getRegistrationErrorCategory(err),
+          },
+        });
         setError(err instanceof Error ? err.message : 'Failed to register data asset');
       } finally {
         setIsSubmitting(false);
       }
     },
-    [project, form, onCreated, onClose, connections],
+    [connections, form, onClose, onCreated, project, trackEvent],
   );
 
   const assetType = form.watch('assetType');
@@ -246,12 +292,14 @@ const RegisterDataModal: React.FC<RegisterDataModalProps> = ({
             <AssetDetailsSection
               collections={collections}
               onManageCollections={onManageCollections}
+              project={project}
             />
             <DataLocationSection
               connections={connections}
               connectionsLoaded={connectionsLoaded}
               connectionsError={connectionsError}
               showConnection
+              project={project}
             />
             <PropertiesSection />
             <CustomPropertiesSection />
@@ -263,9 +311,10 @@ const RegisterDataModal: React.FC<RegisterDataModalProps> = ({
         <DashboardModalFooter
           submitLabel="Register"
           onSubmit={form.handleSubmit(handleSubmit)}
-          onCancel={handleClose}
+          onCancel={handleCancel}
           isSubmitDisabled={isSubmitting}
           isSubmitLoading={isSubmitting}
+          isCancelDisabled={isSubmitting}
           submitButtonTestId="register-data-submit"
         />
       </ModalFooter>

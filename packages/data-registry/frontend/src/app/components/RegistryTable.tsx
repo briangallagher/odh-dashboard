@@ -39,6 +39,8 @@ import {
 import { useNotification } from '~/app/hooks/useNotification';
 import { assetDetailUrl } from '~/app/utilities/routes';
 import { getFormatBadge, FORMAT_OPTIONS } from '~/app/utilities/formatUtils';
+import { useDataRegistryTrackEvent } from '~/app/hooks/useDataRegistryTrackEvent';
+import { DATA_REGISTRY_EVENT_NAMES } from '~/app/utilities/tracking';
 import AccessDeniedError from '~/app/components/errors/AccessDeniedError';
 import ConnectionError from '~/app/components/errors/ConnectionError';
 import ServiceUnavailableError from '~/app/components/errors/ServiceUnavailableError';
@@ -88,6 +90,67 @@ const getSearchableAssetText = (asset: RegistryAsset): string =>
     .join(' ')
     .toLowerCase();
 
+type RegistryFilterState = {
+  searchText: string;
+  selectedLabels: string[];
+  selectedAssetType: string;
+  selectedFormat: string;
+  activeSortIndex: number | undefined;
+  activeSortDirection: 'asc' | 'desc';
+};
+
+const filterRegistryAssets = (
+  assets: RegistryAsset[],
+  filters: RegistryFilterState,
+): RegistryAsset[] => {
+  let result = assets;
+  if (filters.searchText) {
+    const lower = filters.searchText.toLowerCase();
+    result = result.filter((asset) => getSearchableAssetText(asset).includes(lower));
+  }
+  if (filters.selectedLabels.length > 0) {
+    result = result.filter((asset) =>
+      filters.selectedLabels.every((label) => asset.labels.includes(label)),
+    );
+  }
+  if (filters.selectedAssetType) {
+    result = result.filter((asset) =>
+      filters.selectedAssetType === 'Structured'
+        ? asset.assetType === 'table'
+        : asset.assetType === 'volume',
+    );
+  }
+  if (filters.selectedFormat) {
+    const selectedOption = FORMAT_OPTIONS.find((option) => option.key === filters.selectedFormat);
+    result = result.filter(
+      (asset) =>
+        asset.format.toLowerCase() ===
+          (selectedOption?.value ?? filters.selectedFormat).toLowerCase() &&
+        (!selectedOption || asset.assetType === selectedOption.assetType),
+    );
+  }
+  if (filters.activeSortIndex !== undefined) {
+    const sortIndex = filters.activeSortIndex;
+    const getSortValue = (asset: RegistryAsset, columnIndex: number): string => {
+      if (columnIndex === 0) {
+        return asset.name;
+      }
+      if (columnIndex === 1) {
+        return asset.format;
+      }
+      return asset.connectionRef || asset.location;
+    };
+    result = result.toSorted((a, b) => {
+      const aVal = getSortValue(a, sortIndex);
+      const bVal = getSortValue(b, sortIndex);
+      return filters.activeSortDirection === 'asc'
+        ? aVal.localeCompare(bVal)
+        : bVal.localeCompare(aVal);
+    });
+  }
+  return result;
+};
+
 const CATEGORY_LABELS: Record<FilterCategory, string> = {
   labels: 'Labels',
   assetType: 'Asset type',
@@ -108,6 +171,8 @@ const RegistryTable: React.FC<RegistryTableProps> = ({
 }) => {
   const navigate = useNavigate();
   const notification = useNotification();
+  const trackEvent = useDataRegistryTrackEvent();
+  const searchTrackingTimer = React.useRef<ReturnType<typeof setTimeout>>();
   const [searchText, setSearchText] = React.useState('');
   const [filterCategory, setFilterCategory] = React.useState<FilterCategory>('labels');
   const [isCategoryOpen, setIsCategoryOpen] = React.useState(false);
@@ -126,62 +191,75 @@ const RegistryTable: React.FC<RegistryTableProps> = ({
   const hasActiveFilters =
     selectedLabels.length > 0 || !!selectedAssetType || !!selectedFormat || !!searchText;
 
+  const currentFilterState = React.useMemo<RegistryFilterState>(
+    () => ({
+      searchText,
+      selectedLabels,
+      selectedAssetType,
+      selectedFormat,
+      activeSortIndex,
+      activeSortDirection,
+    }),
+    [
+      activeSortDirection,
+      activeSortIndex,
+      searchText,
+      selectedAssetType,
+      selectedFormat,
+      selectedLabels,
+    ],
+  );
+
+  const clearSearchTrackingTimer = React.useCallback(() => {
+    if (searchTrackingTimer.current) {
+      clearTimeout(searchTrackingTimer.current);
+      searchTrackingTimer.current = undefined;
+    }
+  }, []);
+
+  const getSearchResultCount = React.useCallback(
+    (query: string): number =>
+      filterRegistryAssets(assets, {
+        ...currentFilterState,
+        searchText: query,
+      }).length,
+    [assets, currentFilterState],
+  );
+
+  const scheduleSearchTracking = React.useCallback(
+    (query: string) => {
+      clearSearchTrackingTimer();
+      searchTrackingTimer.current = setTimeout(() => {
+        trackEvent({
+          eventName: DATA_REGISTRY_EVENT_NAMES.searchPerformed,
+          properties: {
+            hasQuery: query.length > 0,
+            queryLength: query.length,
+            resultCount: getSearchResultCount(query),
+            project,
+          },
+        });
+        searchTrackingTimer.current = undefined;
+      }, 750);
+    },
+    [clearSearchTrackingTimer, getSearchResultCount, project, trackEvent],
+  );
+
+  React.useEffect(() => clearSearchTrackingTimer, [clearSearchTrackingTimer]);
+
   const clearAllFilters = React.useCallback(() => {
+    clearSearchTrackingTimer();
     setSelectedLabels([]);
     setSelectedAssetType('');
     setSelectedFormat('');
     setSearchText('');
     setPage(1);
-  }, []);
+  }, [clearSearchTrackingTimer]);
 
-  const filteredAssets = React.useMemo(() => {
-    let result = assets;
-    if (searchText) {
-      const lower = searchText.toLowerCase();
-      result = result.filter((a) => getSearchableAssetText(a).includes(lower));
-    }
-    if (selectedLabels.length > 0) {
-      result = result.filter((a) => selectedLabels.every((l) => a.labels.includes(l)));
-    }
-    if (selectedAssetType) {
-      result = result.filter((a) =>
-        selectedAssetType === 'Structured' ? a.assetType === 'table' : a.assetType === 'volume',
-      );
-    }
-    if (selectedFormat) {
-      const selectedOption = FORMAT_OPTIONS.find((option) => option.key === selectedFormat);
-      result = result.filter(
-        (a) =>
-          a.format.toLowerCase() === (selectedOption?.value ?? selectedFormat).toLowerCase() &&
-          (!selectedOption || a.assetType === selectedOption.assetType),
-      );
-    }
-    if (activeSortIndex !== undefined) {
-      const getSortValue = (asset: RegistryAsset, colIndex: number): string => {
-        if (colIndex === 0) {
-          return asset.name;
-        }
-        if (colIndex === 1) {
-          return asset.format;
-        }
-        return asset.connectionRef || asset.location;
-      };
-      result = result.toSorted((a, b) => {
-        const aVal = getSortValue(a, activeSortIndex);
-        const bVal = getSortValue(b, activeSortIndex);
-        return activeSortDirection === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-      });
-    }
-    return result;
-  }, [
-    assets,
-    searchText,
-    selectedLabels,
-    selectedAssetType,
-    selectedFormat,
-    activeSortIndex,
-    activeSortDirection,
-  ]);
+  const filteredAssets = React.useMemo(
+    () => filterRegistryAssets(assets, currentFilterState),
+    [assets, currentFilterState],
+  );
 
   const maxPage = Math.max(1, Math.ceil(filteredAssets.length / perPage));
   const currentPage = Math.min(page, maxPage);
@@ -425,10 +503,24 @@ const RegistryTable: React.FC<RegistryTableProps> = ({
                 onChange={(_event, value) => {
                   setSearchText(value);
                   setPage(1);
+                  scheduleSearchTracking(value);
                 }}
                 onClear={() => {
+                  if (!searchText) {
+                    return;
+                  }
+                  clearSearchTrackingTimer();
                   setSearchText('');
                   setPage(1);
+                  trackEvent({
+                    eventName: DATA_REGISTRY_EVENT_NAMES.searchPerformed,
+                    properties: {
+                      hasQuery: false,
+                      queryLength: 0,
+                      resultCount: getSearchResultCount(''),
+                      project,
+                    },
+                  });
                 }}
                 data-testid="asset-search"
                 style={{ minWidth: '340px' }}
@@ -613,6 +705,12 @@ const RegistryTable: React.FC<RegistryTableProps> = ({
                               asset.name,
                               asset.assetType,
                             )}
+                            onClick={() => {
+                              trackEvent({
+                                eventName: DATA_REGISTRY_EVENT_NAMES.assetOpened,
+                                properties: { project },
+                              });
+                            }}
                           />
                         )}
                       >
@@ -671,7 +769,11 @@ const RegistryTable: React.FC<RegistryTableProps> = ({
                         <DropdownList>
                           <DropdownItem
                             key="edit"
-                            onClick={() =>
+                            onClick={() => {
+                              trackEvent({
+                                eventName: DATA_REGISTRY_EVENT_NAMES.assetEditInitiated,
+                                properties: { project },
+                              });
                               navigate(
                                 `${assetDetailUrl(
                                   project,
@@ -679,15 +781,21 @@ const RegistryTable: React.FC<RegistryTableProps> = ({
                                   asset.name,
                                   asset.assetType,
                                 )}?edit=true`,
-                              )
-                            }
+                              );
+                            }}
                             data-testid={assetTestId('asset-edit')}
                           >
                             Edit
                           </DropdownItem>
                           <DropdownItem
                             key="delete"
-                            onClick={() => setDeleteAsset(asset)}
+                            onClick={() => {
+                              trackEvent({
+                                eventName: DATA_REGISTRY_EVENT_NAMES.assetDeleteInitiated,
+                                properties: { project },
+                              });
+                              setDeleteAsset(asset);
+                            }}
                             data-testid={assetTestId('asset-delete')}
                           >
                             Delete

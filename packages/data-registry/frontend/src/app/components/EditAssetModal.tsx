@@ -286,6 +286,7 @@ const EditAssetModal: React.FC<EditAssetModalProps> = ({
             <DataLocationSection
               pathLabel="Storage location"
               showConnection
+              isEditMode
               connections={connections}
               connectionsLoaded={connectionsLoaded}
               connectionsError={connectionsError}

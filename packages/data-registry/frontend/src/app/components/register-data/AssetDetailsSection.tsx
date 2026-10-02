@@ -23,6 +23,8 @@ import { PlusCircleIcon, OutlinedQuestionCircleIcon } from '@patternfly/react-ic
 import { Controller, useFormContext } from 'react-hook-form';
 import { RegisterDataFormData } from '~/app/schemas/registerData.schema';
 import { EditAssetFormData } from '~/app/schemas/editAsset.schema';
+import { DATA_REGISTRY_EVENT_NAMES } from '~/app/utilities/tracking';
+import { useDataRegistryTrackEvent } from '~/app/hooks/useDataRegistryTrackEvent';
 
 const UNSTRUCTURED_FORMATS = [
   { key: 'documents', label: 'Documents', description: 'Text, PDFs, and office files' },
@@ -53,15 +55,18 @@ type AssetDetailsSectionProps =
       isEditMode?: false;
       collections: string[];
       onManageCollections: () => void;
+      project: string;
     }
   | {
       isEditMode: true;
       collections?: never;
       onManageCollections?: never;
+      project?: never;
     };
 
 const AssetDetailsSection: React.FC<AssetDetailsSectionProps> = (props) => {
   const { isEditMode } = props;
+  const trackEvent = useDataRegistryTrackEvent();
   const {
     control,
     formState: { errors },
@@ -83,12 +88,21 @@ const AssetDetailsSection: React.FC<AssetDetailsSectionProps> = (props) => {
   const handleAddLabel = React.useCallback(() => {
     const trimmed = newLabel.trim();
     const currentLabels = getValues('labels');
-    if (trimmed && !currentLabels.includes(trimmed)) {
+    const isDuplicate = currentLabels.some(
+      (label) => label.toLocaleLowerCase() === trimmed.toLocaleLowerCase(),
+    );
+    if (trimmed && !isDuplicate) {
       setValue('labels', [...currentLabels, trimmed]);
       setNewLabel('');
       setIsAddingLabel(false);
+      if (!isEditMode) {
+        trackEvent({
+          eventName: DATA_REGISTRY_EVENT_NAMES.labelAdded,
+          properties: { project: props.project },
+        });
+      }
     }
-  }, [newLabel, getValues, setValue]);
+  }, [getValues, isEditMode, newLabel, props, setValue, trackEvent]);
 
   const handleRemoveLabel = React.useCallback(
     (label: string) => {
@@ -196,6 +210,18 @@ const AssetDetailsSection: React.FC<AssetDetailsSectionProps> = (props) => {
                 selected={field.value}
                 onSelect={(_event, value) => {
                   const newType = String(value);
+                  if (
+                    newType !== field.value &&
+                    (newType === 'structured' || newType === 'unstructured')
+                  ) {
+                    trackEvent({
+                      eventName: DATA_REGISTRY_EVENT_NAMES.assetTypeSelected,
+                      properties: {
+                        assetType: newType,
+                        project: props.project,
+                      },
+                    });
+                  }
                   field.onChange(newType);
                   setValue('format', DEFAULT_FORMATS[newType]);
                   setValue('schemaFields', []);
@@ -257,7 +283,14 @@ const AssetDetailsSection: React.FC<AssetDetailsSectionProps> = (props) => {
               isOpen={isFormatOpen}
               selected={field.value}
               onSelect={(_event, value) => {
-                field.onChange(String(value));
+                const newFormat = String(value);
+                if (newFormat !== field.value && !isEditMode) {
+                  trackEvent({
+                    eventName: DATA_REGISTRY_EVENT_NAMES.formatSelected,
+                    properties: { format: newFormat, project: props.project },
+                  });
+                }
+                field.onChange(newFormat);
                 setIsFormatOpen(false);
               }}
               onOpenChange={setIsFormatOpen}
@@ -336,7 +369,18 @@ const AssetDetailsSection: React.FC<AssetDetailsSectionProps> = (props) => {
                     props.onManageCollections();
                     return;
                   }
-                  field.onChange(String(value));
+                  const newCollection = String(value);
+                  if (newCollection !== field.value) {
+                    trackEvent({
+                      eventName: DATA_REGISTRY_EVENT_NAMES.collectionSelectionChanged,
+                      properties: {
+                        initialCollection: 'none',
+                        selectedCollection: newCollection === 'default' ? 'default' : 'custom',
+                        project: props.project,
+                      },
+                    });
+                  }
+                  field.onChange(newCollection);
                   setIsCollectionOpen(false);
                 }}
                 onOpenChange={setIsCollectionOpen}

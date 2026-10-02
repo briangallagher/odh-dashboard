@@ -30,6 +30,8 @@ import DeleteCollectionModal from '~/app/components/DeleteCollectionModal';
 import ManageCollectionsModal from '~/app/components/ManageCollectionsModal';
 import RegisterDataModal from '~/app/components/RegisterDataModal';
 import type { CollectionInfo } from '~/app/hooks/useCollections';
+import { useDataRegistryTrackEvent } from '~/app/hooks/useDataRegistryTrackEvent';
+import { DATA_REGISTRY_EVENT_NAMES } from '~/app/utilities/tracking';
 import CollectionDetailView from './CollectionDetailView';
 
 const CollectionDetailPage: React.FC = () => {
@@ -38,6 +40,7 @@ const CollectionDetailPage: React.FC = () => {
     collection: string;
   }>();
   const navigate = useNavigate();
+  const trackEvent = useDataRegistryTrackEvent();
 
   const [collectionDetail, loaded, loadError, refresh] = useCollectionDetail(project, collection);
   const [isActionsOpen, setIsActionsOpen] = React.useState(false);
@@ -99,7 +102,15 @@ const CollectionDetailPage: React.FC = () => {
         <DropdownList>
           <DropdownItem
             key="register-data"
-            onClick={() => setIsRegisterDataOpen(true)}
+            onClick={() => {
+              if (project) {
+                trackEvent({
+                  eventName: DATA_REGISTRY_EVENT_NAMES.registrationStarted,
+                  properties: { project },
+                });
+              }
+              setIsRegisterDataOpen(true);
+            }}
             data-testid="collection-action-register-data"
           >
             Register data

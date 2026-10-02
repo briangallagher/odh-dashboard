@@ -16,6 +16,8 @@ import { Controller, useFormContext } from 'react-hook-form';
 import { RegisterDataFormData } from '~/app/schemas/registerData.schema';
 import { ConnectionModel } from '~/app/types';
 import { EditAssetFormData } from '~/app/schemas/editAsset.schema';
+import { useDataRegistryTrackEvent } from '~/app/hooks/useDataRegistryTrackEvent';
+import { DATA_REGISTRY_EVENT_NAMES } from '~/app/utilities/tracking';
 
 type DataLocationSectionProps = {
   connections?: ConnectionModel[];
@@ -24,6 +26,8 @@ type DataLocationSectionProps = {
   pathLabel?: string;
   showConnection?: boolean;
   isConnectionReadOnly?: boolean;
+  project?: string;
+  isEditMode?: boolean;
 };
 
 const DataLocationSection: React.FC<DataLocationSectionProps> = (props) => {
@@ -34,9 +38,12 @@ const DataLocationSection: React.FC<DataLocationSectionProps> = (props) => {
     pathLabel = 'Path',
     showConnection = false,
     isConnectionReadOnly = false,
+    project,
+    isEditMode = false,
   } = props;
   const { control } = useFormContext<RegisterDataFormData | EditAssetFormData>();
   const [isConnectionOpen, setIsConnectionOpen] = React.useState(false);
+  const trackEvent = useDataRegistryTrackEvent();
 
   const getToggleLabel = (value: string): string => {
     if (!value) {
@@ -73,7 +80,14 @@ const DataLocationSection: React.FC<DataLocationSectionProps> = (props) => {
                 isOpen={isConnectionOpen}
                 selected={field.value}
                 onSelect={(_event, value) => {
-                  field.onChange(String(value));
+                  const newConnection = String(value);
+                  if (!isEditMode && project && newConnection !== field.value) {
+                    trackEvent({
+                      eventName: DATA_REGISTRY_EVENT_NAMES.connectionSelected,
+                      properties: { project },
+                    });
+                  }
+                  field.onChange(newConnection);
                   setIsConnectionOpen(false);
                 }}
                 onOpenChange={setIsConnectionOpen}

@@ -29,6 +29,8 @@ import { browseUrl, collectionDetailUrl } from '~/app/utilities/routes';
 import { useNotification } from '~/app/hooks/useNotification';
 import DeleteAssetModal from '~/app/components/DeleteAssetModal';
 import EditAssetModal from '~/app/components/EditAssetModal';
+import { useDataRegistryTrackEvent } from '~/app/hooks/useDataRegistryTrackEvent';
+import { DATA_REGISTRY_EVENT_NAMES } from '~/app/utilities/tracking';
 import TableDetailView from './TableDetailView';
 
 const TableDetailPage: React.FC = () => {
@@ -41,6 +43,7 @@ const TableDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const notification = useNotification();
+  const trackEvent = useDataRegistryTrackEvent();
 
   const isVolume = assetType === 'volume';
 
@@ -178,14 +181,30 @@ const TableDetailPage: React.FC = () => {
         <DropdownList>
           <DropdownItem
             key="edit"
-            onClick={() => setIsEditModalOpen(true)}
+            onClick={() => {
+              if (project) {
+                trackEvent({
+                  eventName: DATA_REGISTRY_EVENT_NAMES.assetEditInitiated,
+                  properties: { project },
+                });
+              }
+              setIsEditModalOpen(true);
+            }}
             data-testid="asset-action-edit"
           >
             Edit
           </DropdownItem>
           <DropdownItem
             key="delete"
-            onClick={() => setIsDeleteModalOpen(true)}
+            onClick={() => {
+              if (project) {
+                trackEvent({
+                  eventName: DATA_REGISTRY_EVENT_NAMES.assetDeleteInitiated,
+                  properties: { project },
+                });
+              }
+              setIsDeleteModalOpen(true);
+            }}
             data-testid="asset-action-delete"
           >
             Delete
